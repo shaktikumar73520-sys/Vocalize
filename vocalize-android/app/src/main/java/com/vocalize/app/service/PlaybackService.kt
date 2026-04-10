@@ -7,7 +7,7 @@ import android.os.Binder
 import android.os.IBinder
 import com.vocalize.app.MainActivity
 import com.vocalize.app.R
-import com.vocalize.app.VocalizeApplication
+import com.vocalize.app.data.repository.MemoRepository
 import com.vocalize.app.util.AudioPlayerManager
 import com.vocalize.app.util.NotificationHelper
 import dagger.hilt.android.AndroidEntryPoint
@@ -19,6 +19,7 @@ class PlaybackService : Service() {
 
     @Inject lateinit var audioPlayerManager: AudioPlayerManager
     @Inject lateinit var notificationHelper: NotificationHelper
+    @Inject lateinit var memoRepository: MemoRepository
 
     private val binder = LocalBinder()
     private val scope = CoroutineScope(Dispatchers.Main + Job())
@@ -33,6 +34,11 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         startForeground(NOTIFICATION_ID, buildNotification(false))
+        audioPlayerManager.onPositionSave = { memoId, positionMs ->
+            scope.launch(Dispatchers.IO) {
+                memoRepository.updatePlaybackPosition(memoId, positionMs)
+            }
+        }
         startPositionUpdates()
     }
 
@@ -45,8 +51,8 @@ class PlaybackService : Service() {
         }
     }
 
-    fun playMemo(filePath: String, memoId: String, memoTitle: String) {
-        audioPlayerManager.prepareAndPlay(filePath, memoId)
+    fun playMemo(filePath: String, memoId: String, memoTitle: String, startPositionMs: Long = 0L) {
+        audioPlayerManager.prepareAndPlay(filePath, memoId, startPositionMs)
         updateNotification(memoTitle, true)
     }
 

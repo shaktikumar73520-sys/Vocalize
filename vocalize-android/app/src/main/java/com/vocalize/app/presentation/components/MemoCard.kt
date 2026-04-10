@@ -1,5 +1,6 @@
 package com.vocalize.app.presentation.components
 
+import android.content.Intent
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,27 +13,42 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.core.content.FileProvider
 import com.vocalize.app.data.local.entity.CategoryEntity
 import com.vocalize.app.data.local.entity.MemoEntity
 import com.vocalize.app.presentation.theme.*
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.floor
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemoCard(
     memo: MemoEntity,
     category: CategoryEntity?,
     onClick: () -> Unit,
     onDelete: () -> Unit,
-    onAddToPlaylist: () -> Unit
+    onAddToPlaylist: () -> Unit,
+    onPin: (() -> Unit)? = null,
+    isSelected: Boolean = false,
+    onSelectionToggle: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var editTitleDialog by remember { mutableStateOf(false) }
+
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                showDeleteConfirm = true
+                false
+            } else false
+        }
+    )
 
     val categoryColor = remember(category) {
         try {
@@ -40,160 +56,218 @@ fun MemoCard(
         } catch (e: Exception) { null }
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        elevation = CardDefaults.cardElevation(0.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Mic icon with category color accent
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .background(
-                        color = (categoryColor ?: VocalizeRed).copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(12.dp)
-                    ),
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.error),
+                contentAlignment = Alignment.CenterEnd
             ) {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = null,
-                    tint = categoryColor ?: VocalizeRed,
-                    modifier = Modifier.size(24.dp)
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(end = 20.dp)
+                ) {
+                    Icon(Icons.Default.Delete, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.height(2.dp))
+                    Text("Delete", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                }
             }
-
-            Spacer(Modifier.width(14.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = memo.title.ifBlank { "Voice Memo" },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(Modifier.height(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.AccessTime,
-                        contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (onSelectionToggle != null) onSelectionToggle()
+                    else onClick()
+                },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surfaceVariant
+            ),
+            elevation = CardDefaults.cardElevation(0.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (onSelectionToggle != null) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { onSelectionToggle() },
+                        colors = CheckboxDefaults.colors(checkedColor = VocalizeRed),
+                        modifier = Modifier.padding(end = 8.dp)
                     )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = formatDuration(memo.duration),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "•",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = formatDate(memo.dateCreated),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(
+                                color = (categoryColor ?: VocalizeRed).copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = categoryColor ?: VocalizeRed,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
 
-                if (memo.hasReminder && memo.reminderTime != null) {
+                Spacer(Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (memo.isPinned) {
+                            Icon(
+                                Icons.Default.PushPin,
+                                contentDescription = null,
+                                tint = VocalizeOrange,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = memo.title.ifBlank { "Voice Memo" },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
                     Spacer(Modifier.height(4.dp))
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Alarm,
+                            Icons.Default.AccessTime,
                             contentDescription = null,
-                            modifier = Modifier.size(11.dp),
-                            tint = VocalizeOrange
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(Modifier.width(3.dp))
+                        Spacer(Modifier.width(4.dp))
                         Text(
-                            text = formatDateTime(memo.reminderTime),
+                            text = formatDuration(memo.duration),
                             style = MaterialTheme.typography.labelSmall,
-                            color = VocalizeOrange
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
-                }
-
-                if (category != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Surface(
-                        color = (categoryColor ?: VocalizeRed).copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
+                        Spacer(Modifier.width(8.dp))
+                        Text("•", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            text = category.name,
+                            text = formatDate(memo.dateCreated),
                             style = MaterialTheme.typography.labelSmall,
-                            color = categoryColor ?: VocalizeRed,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                }
-            }
 
-            // Action buttons
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = onClick,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .background(VocalizeRed.copy(alpha = 0.1f), CircleShape)
-                ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = VocalizeRed,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                    if (memo.hasReminder && memo.reminderTime != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Alarm, null, modifier = Modifier.size(11.dp), tint = VocalizeOrange)
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = formatDateTime(memo.reminderTime),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = VocalizeOrange
+                            )
+                        }
+                    }
 
-                Box {
-                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "More",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
+                    if (memo.transcription.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = memo.transcription,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
+
+                    if (category != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Surface(
+                            color = (categoryColor ?: VocalizeRed).copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = category.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = categoryColor ?: VocalizeRed,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onClick,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(VocalizeRed.copy(alpha = 0.1f), CircleShape)
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Edit title") },
-                            leadingIcon = { Icon(Icons.Default.Edit, null) },
-                            onClick = { showMenu = false; editTitleDialog = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Add to playlist") },
-                            leadingIcon = { Icon(Icons.Default.QueueMusic, null) },
-                            onClick = { showMenu = false; onAddToPlaylist() }
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                            onClick = { showMenu = false; showDeleteConfirm = true }
-                        )
+                        Icon(Icons.Default.PlayArrow, "Play", tint = VocalizeRed, modifier = Modifier.size(20.dp))
+                    }
+
+                    Box {
+                        IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Default.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                        }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (memo.isPinned) "Unpin" else "Pin to top") },
+                                leadingIcon = { Icon(Icons.Default.PushPin, null, tint = VocalizeOrange) },
+                                onClick = { showMenu = false; onPin?.invoke() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add to playlist") },
+                                leadingIcon = { Icon(Icons.Default.QueueMusic, null) },
+                                onClick = { showMenu = false; onAddToPlaylist() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share audio") },
+                                leadingIcon = { Icon(Icons.Default.Share, null) },
+                                onClick = {
+                                    showMenu = false
+                                    val file = File(memo.filePath)
+                                    if (file.exists()) {
+                                        try {
+                                            val uri = FileProvider.getUriForFile(
+                                                context, "${context.packageName}.provider", file
+                                            )
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "audio/*"
+                                                putExtra(Intent.EXTRA_STREAM, uri)
+                                                putExtra(Intent.EXTRA_SUBJECT, memo.title.ifBlank { "Voice Memo" })
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share voice memo"))
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = { showMenu = false; showDeleteConfirm = true }
+                            )
+                        }
                     }
                 }
             }
@@ -204,7 +278,7 @@ fun MemoCard(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete Memo") },
-            text = { Text("Are you sure you want to delete \"${memo.title.ifBlank { "Voice Memo" }}\"? This cannot be undone.") },
+            text = { Text("Delete \"${memo.title.ifBlank { "Voice Memo" }}\"? This cannot be undone.") },
             confirmButton = {
                 Button(
                     onClick = { showDeleteConfirm = false; onDelete() },

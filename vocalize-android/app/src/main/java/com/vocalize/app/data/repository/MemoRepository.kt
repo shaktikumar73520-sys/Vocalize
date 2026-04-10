@@ -20,6 +20,7 @@ class MemoRepository @Inject constructor(
 ) {
     // ─── Memos ───────────────────────────────────────────
     fun getAllMemos(): Flow<List<MemoEntity>> = memoDao.getAllMemos()
+    fun getPinnedMemos(): Flow<List<MemoEntity>> = memoDao.getPinnedMemos()
     fun getRecentMemos(): Flow<List<MemoEntity>> = memoDao.getRecentMemos()
     fun getMemoByIdFlow(id: String): Flow<MemoEntity?> = memoDao.getMemoByIdFlow(id)
     suspend fun getMemoById(id: String): MemoEntity? = memoDao.getMemoById(id)
@@ -53,6 +54,9 @@ class MemoRepository @Inject constructor(
     suspend fun getAllMemosWithReminders(): List<MemoEntity> = memoDao.getAllMemosWithReminders()
     suspend fun getMemoCount(): Int = memoDao.getMemoCount()
     suspend fun getTotalDuration(): Long = memoDao.getTotalDuration() ?: 0L
+    suspend fun updatePinned(id: String, pinned: Boolean) = memoDao.updatePinned(id, pinned)
+    suspend fun updatePlaybackPosition(id: String, positionMs: Long) = memoDao.updatePlaybackPosition(id, positionMs)
+    suspend fun deleteAllMemos() = memoDao.deleteAllMemos()
 
     // ─── Categories ───────────────────────────────────────────
     fun getAllCategories(): Flow<List<CategoryEntity>> = categoryDao.getAllCategories()

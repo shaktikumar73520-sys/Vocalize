@@ -1,0 +1,572 @@
+package com.vocalize.app.presentation.settings
+
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.*
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.Scope
+import com.google.api.services.drive.DriveScopes
+import com.vocalize.app.presentation.theme.*
+import java.text.SimpleDateFormat
+import java.util.*
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    var showSnoozeDialog by remember { mutableStateOf(false) }
+    var showClearCacheDialog by remember { mutableStateOf(false) }
+    var showDeleteAllDialog by remember { mutableStateOf(false) }
+    var showDigestHourDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(uiState.snackbarMessage) {
+        uiState.snackbarMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearSnackbar()
+        }
+    }
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                .addOnSuccessListener { account ->
+                    // Account signed in, refresh UI
+                }
+        }
+    }
+
+    fun launchGoogleSignIn() {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope(DriveScopes.DRIVE_APPDATA))
+            .build()
+        val client = GoogleSignIn.getClient(context, gso)
+        googleSignInLauncher.launch(client.signInIntent)
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Default.ArrowBack, "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // ── Account & Backup ──────────────────────────────────────────
+            SettingsSectionHeader("Account & Backup", Icons.Default.Cloud)
+
+            SettingsCard {
+                if (!uiState.isSignedIn) {
+                    SettingsActionRow(
+                        icon = Icons.Default.AccountCircle,
+                        iconTint = VocalizeAccentBlue,
+                        title = "Sign in with Google",
+                        subtitle = "Required for Drive backup",
+                        onClick = { launchGoogleSignIn() }
+                    )
+                } else {
+                    SettingsInfoRow(
+                        icon = Icons.Default.CheckCircle,
+                        iconTint = VocalizeGreen,
+                        title = "Signed in",
+                        subtitle = uiState.signedInEmail
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    SettingsActionRow(
+                        icon = Icons.Default.Logout,
+                        iconTint = MaterialTheme.colorScheme.error,
+                        title = "Sign out",
+                        subtitle = "",
+                        onClick = viewModel::signOut
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                SettingsActionRow(
+                    icon = Icons.Default.Backup,
+                    iconTint = VocalizePurple,
+                    title = "Backup now",
+                    subtitle = if (uiState.lastBackupTime > 0L) "Last: ${formatTs(uiState.lastBackupTime)}" else "Never backed up",
+                    onClick = viewModel::performBackup,
+                    enabled = !uiState.isBackingUp
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                SettingsActionRow(
+                    icon = Icons.Default.Restore,
+                    iconTint = VocalizeOrange,
+                    title = "Restore from Drive",
+                    subtitle = "Replaces local data",
+                    onClick = viewModel::performRestore,
+                    enabled = !uiState.isBackingUp && uiState.isSignedIn
+                )
+
+                AnimatedVisibility(visible = uiState.isBackingUp || uiState.backupStatusMessage.isNotBlank()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        if (uiState.isBackingUp) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        if (uiState.backupStatusMessage.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                uiState.backupStatusMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Voice-to-Text ──────────────────────────────────────────
+            SettingsSectionHeader("Voice-to-Text (Offline)", Icons.Default.RecordVoiceOver)
+
+            SettingsCard {
+                SettingsToggleRow(
+                    icon = Icons.Default.RecordVoiceOver,
+                    iconTint = VocalizeGreen,
+                    title = "Auto-transcribe recordings",
+                    subtitle = "Uses Vosk AI (offline, ~40MB model)",
+                    checked = uiState.voskEnabled,
+                    onCheckedChange = viewModel::setVoskEnabled
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                SettingsActionRow(
+                    icon = if (uiState.voskModelExists) Icons.Default.Delete else Icons.Default.Download,
+                    iconTint = if (uiState.voskModelExists) MaterialTheme.colorScheme.error else VocalizeAccentBlue,
+                    title = if (uiState.voskModelExists) "Delete Vosk model" else "Model not downloaded",
+                    subtitle = if (uiState.voskModelExists) "Free up ~40MB" else "Downloads automatically on first use",
+                    onClick = { if (uiState.voskModelExists) viewModel.deleteVoskModel() },
+                    enabled = uiState.voskModelExists
+                )
+            }
+
+            // ── Appearance ──────────────────────────────────────────
+            SettingsSectionHeader("Appearance", Icons.Default.Palette)
+
+            SettingsCard {
+                SettingsToggleRow(
+                    icon = Icons.Default.DarkMode,
+                    iconTint = VocalizePurple,
+                    title = "Dark mode",
+                    subtitle = "App-wide dark theme",
+                    checked = uiState.isDarkMode,
+                    onCheckedChange = viewModel::setDarkMode
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                // Accent color row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SettingsIconBox(Icons.Default.Palette, VocalizeRed)
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Accent color", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        Text("Choose app highlight color", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("#E53935" to "Red", "#1E88E5" to "Blue", "#43A047" to "Green", "#FB8C00" to "Orange", "#8E24AA" to "Purple").forEach { (hex, name) ->
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(android.graphics.Color.parseColor(hex)))
+                                    .clickable { viewModel.setAccentColor(hex) }
+                                    .then(if (uiState.accentColor == hex) Modifier.border(2.dp, Color.White, CircleShape) else Modifier),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (uiState.accentColor == hex) {
+                                    Icon(Icons.Default.Check, name, tint = Color.White, modifier = Modifier.size(14.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Reminders ──────────────────────────────────────────
+            SettingsSectionHeader("Reminder Defaults", Icons.Default.Alarm)
+
+            SettingsCard {
+                SettingsActionRow(
+                    icon = Icons.Default.Snooze,
+                    iconTint = VocalizeOrange,
+                    title = "Default snooze time",
+                    subtitle = "${uiState.defaultSnoozeMinutes} minutes",
+                    onClick = { showSnoozeDialog = true }
+                )
+            }
+
+            // ── Notifications ──────────────────────────────────────────
+            SettingsSectionHeader("Notifications", Icons.Default.Notifications)
+
+            SettingsCard {
+                SettingsToggleRow(
+                    icon = Icons.Default.WbSunny,
+                    iconTint = VocalizeOrange,
+                    title = "Daily digest",
+                    subtitle = "Morning reminder of today's scheduled memos",
+                    checked = uiState.dailyDigestEnabled,
+                    onCheckedChange = viewModel::setDailyDigestEnabled
+                )
+                AnimatedVisibility(visible = uiState.dailyDigestEnabled) {
+                    Column {
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        SettingsActionRow(
+                            icon = Icons.Default.Schedule,
+                            iconTint = VocalizeAccentBlue,
+                            title = "Digest time",
+                            subtitle = "${uiState.dailyDigestHour}:00 ${if (uiState.dailyDigestHour < 12) "AM" else "PM"}",
+                            onClick = { showDigestHourDialog = true }
+                        )
+                    }
+                }
+            }
+
+            // ── Data Management ──────────────────────────────────────────
+            SettingsSectionHeader("Data Management", Icons.Default.ManageAccounts)
+
+            SettingsCard {
+                SettingsActionRow(
+                    icon = Icons.Default.DeleteForever,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    title = "Delete all data",
+                    subtitle = "Permanently removes all memos and settings",
+                    onClick = { showDeleteAllDialog = true }
+                )
+            }
+
+            // ── Storage ──────────────────────────────────────────
+            SettingsSectionHeader("Storage", Icons.Default.Storage)
+
+            SettingsCard {
+                SettingsInfoRow(
+                    icon = Icons.Default.GraphicEq,
+                    iconTint = VocalizeAccentBlue,
+                    title = "Recordings",
+                    subtitle = "${uiState.totalMemos} memos · ${String.format("%.1f", uiState.storageUsedMb)} MB used"
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                SettingsActionRow(
+                    icon = Icons.Default.Delete,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    title = "Clear cache",
+                    subtitle = "Frees temporary files",
+                    onClick = { showClearCacheDialog = true }
+                )
+            }
+
+            // ── About ──────────────────────────────────────────
+            SettingsSectionHeader("About", Icons.Default.Info)
+
+            SettingsCard {
+                SettingsInfoRow(
+                    icon = Icons.Default.MicNone,
+                    iconTint = VocalizeRed,
+                    title = "Vocalize",
+                    subtitle = "Version 1.0 · com.vocalize.app"
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                SettingsActionRow(
+                    icon = Icons.Default.OpenInNew,
+                    iconTint = VocalizeAccentBlue,
+                    title = "Open source licenses",
+                    subtitle = "Vosk, Room, Hilt and more",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/alphacep/vosk-android-demo"))
+                        context.startActivity(intent)
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(80.dp))
+        }
+    }
+
+    // Snooze dialog
+    if (showSnoozeDialog) {
+        var tempSnooze by remember { mutableIntStateOf(uiState.defaultSnoozeMinutes) }
+        AlertDialog(
+            onDismissRequest = { showSnoozeDialog = false },
+            title = { Text("Default Snooze") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    uiState.snoozeOptions.forEach { min ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { tempSnooze = min }
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = tempSnooze == min, onClick = { tempSnooze = min })
+                            Spacer(Modifier.width(8.dp))
+                            Text("$min minutes")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.setDefaultSnooze(tempSnooze); showSnoozeDialog = false }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSnoozeDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Clear cache dialog
+    if (showClearCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearCacheDialog = false },
+            title = { Text("Clear Cache") },
+            text = { Text("This will delete temporary files. Your recordings will not be affected.") },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.clearCache(); showClearCacheDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { showClearCacheDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    // Delete all data dialog
+    if (showDeleteAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllDialog = false },
+            icon = { Icon(Icons.Default.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete All Data") },
+            text = { Text("This will permanently delete ALL memos, audio files, and settings. This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.deleteAllData(); showDeleteAllDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete Everything") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteAllDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    // Digest hour picker dialog
+    if (showDigestHourDialog) {
+        var tempHour by remember { mutableIntStateOf(uiState.dailyDigestHour) }
+        AlertDialog(
+            onDismissRequest = { showDigestHourDialog = false },
+            title = { Text("Daily Digest Time") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Send digest at:", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(4.dp))
+                    listOf(6, 7, 8, 9, 10, 12).forEach { hour ->
+                        val label = when {
+                            hour == 12 -> "12:00 PM"
+                            hour < 12 -> "$hour:00 AM"
+                            else -> "${hour - 12}:00 PM"
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { tempHour = hour }
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = tempHour == hour, onClick = { tempHour = hour })
+                            Spacer(Modifier.width(8.dp))
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.setDailyDigestHour(tempHour); showDigestHourDialog = false }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showDigestHourDialog = false }) { Text("Cancel") } }
+        )
+    }
+}
+
+// ── Settings UI components ──────────────────────────────────────────
+
+@Composable
+private fun SettingsSectionHeader(title: String, icon: ImageVector) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+    ) {
+        Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+        Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+@Composable
+private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SettingsIconBox(icon, iconTint)
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = VocalizeRed)
+        )
+    }
+}
+
+@Composable
+private fun SettingsActionRow(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SettingsIconBox(icon, if (enabled) iconTint else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            )
+            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(
+            Icons.Default.ChevronRight,
+            null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 0.7f else 0.3f)
+        )
+    }
+}
+
+@Composable
+private fun SettingsInfoRow(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SettingsIconBox(icon, iconTint)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun SettingsIconBox(icon: ImageVector, tint: Color) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(tint.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
+    }
+}
+
+private fun formatTs(ts: Long): String =
+    SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(ts))

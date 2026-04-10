@@ -89,6 +89,23 @@ class NotificationHelper @Inject constructor(
             .build()
     }
 
+    fun postDailyDigestNotification(count: Int) {
+        val openIntent = PendingIntent.getActivity(
+            context, 9999,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, VocalizeApplication.CHANNEL_REMINDERS)
+            .setSmallIcon(R.drawable.ic_alarm)
+            .setContentTitle("Daily Digest")
+            .setContentText("You have $count reminder${if (count != 1) "s" else ""} for today")
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(openIntent)
+            .build()
+        notificationManager.notify(88888, notification)
+    }
+
     fun cancelNotification(memoId: String) {
         notificationManager.cancel(memoId.hashCode())
     }

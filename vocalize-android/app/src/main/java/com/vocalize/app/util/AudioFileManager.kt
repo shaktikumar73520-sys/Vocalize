@@ -1,6 +1,7 @@
 package com.vocalize.app.util
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
@@ -13,6 +14,17 @@ class AudioFileManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val recordingsDir get() = File(context.filesDir, Constants.RECORDINGS_DIR).apply { mkdirs() }
+
+    fun getRecordingsDir(): File = recordingsDir
+
+    fun getAudioDuration(filePath: String): Long {
+        return try {
+            MediaMetadataRetriever().use { retriever ->
+                retriever.setDataSource(filePath)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            }
+        } catch (_: Exception) { 0L }
+    }
 
     fun deleteAudioFile(filePath: String): Boolean {
         return File(filePath).let { if (it.exists()) it.delete() else false }

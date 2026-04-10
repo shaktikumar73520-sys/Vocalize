@@ -1,5 +1,8 @@
 package com.vocalize.app.presentation.home
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vocalize.app.data.local.entity.CategoryEntity
@@ -11,28 +14,34 @@ import com.vocalize.app.util.AudioFileManager
 import com.vocalize.app.util.Constants
 import com.vocalize.app.util.ReminderAlarmScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
 data class HomeUiState(
     val recentMemos: List<MemoEntity> = emptyList(),
     val allMemos: List<MemoEntity> = emptyList(),
+    val pinnedMemos: List<MemoEntity> = emptyList(),
     val playlists: List<PlaylistEntity> = emptyList(),
     val categories: List<CategoryEntity> = emptyList(),
-    val playlistMemoCounts: Map<String, Int> = emptyMap(),
     val selectedCategoryFilter: String? = null,
     val isLoading: Boolean = true,
     val totalMemos: Int = 0,
-    val totalDurationMs: Long = 0L
+    val totalDurationMs: Long = 0L,
+    val selectedMemoIds: Set<String> = emptySet(),
+    val isBatchMode: Boolean = false,
+    val snackbarMessage: String? = null
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val memoRepository: MemoRepository,
     private val audioFileManager: AudioFileManager,
-    private val alarmScheduler: ReminderAlarmScheduler
+    private val alarmScheduler: ReminderAlarmScheduler,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -48,12 +57,16 @@ class HomeViewModel @Inject constructor(
             combine(
                 memoRepository.getRecentMemos(),
                 memoRepository.getAllMemos(),
+                memoRepository.getPinnedMemos(),
                 memoRepository.getAllPlaylists(),
                 memoRepository.getAllCategories()
-            ) { recent, all, playlists, categories ->
-                HomeUiState(
+            ) { recent, all, pinned, playlists, categories ->
+                val filter = _uiState.value.selectedCategoryFilter
+                val filtered = if (filter != null) all.filter { it.categoryId == filter } else all
+                _uiState.value.copy(
                     recentMemos = recent,
-                    allMemos = all,
+                    allMemos = filtered,
+                    pinnedMemos = pinned,
                     playlists = playlists,
                     categories = categories,
                     isLoading = false,
@@ -88,7 +101,107 @@ class HomeViewModel @Inject constructor(
             if (memo.hasReminder) alarmScheduler.cancelReminder(memo.id)
             audioFileManager.deleteAudioFile(memo.filePath)
             memoRepository.deleteMemo(memo)
+            showSnackbar("Memo deleted")
         }
+    }
+
+    fun togglePin(memo: MemoEntity) {
+        viewModelScope.launch {
+            memoRepository.updatePinned(memo.id, !memo.isPinned)
+            showSnackbar(if (memo.isPinned) "Unpinned" else "Pinned to top")
+        }
+    }
+
+    fun enterBatchMode(memoId: String) {
+        _uiState.update { it.copy(isBatchMode = true, selectedMemoIds = setOf(memoId)) }
+    }
+
+    fun toggleMemoSelection(memoId: String) {
+        _uiState.update { state ->
+            val updated = if (memoId in state.selectedMemoIds)
+                state.selectedMemoIds - memoId
+            else
+                state.selectedMemoIds + memoId
+            state.copy(
+                selectedMemoIds = updated,
+                isBatchMode = updated.isNotEmpty()
+            )
+        }
+    }
+
+    fun selectAll() {
+        val allIds = _uiState.value.allMemos.map { it.id }.toSet()
+        _uiState.update { it.copy(selectedMemoIds = allIds, isBatchMode = true) }
+    }
+
+    fun cancelBatchMode() {
+        _uiState.update { it.copy(isBatchMode = false, selectedMemoIds = emptySet()) }
+    }
+
+    fun deleteSelected() {
+        viewModelScope.launch {
+            val ids = _uiState.value.selectedMemoIds.toList()
+            val memos = ids.mapNotNull { memoRepository.getMemoById(it) }
+            memos.forEach { memo ->
+                if (memo.hasReminder) alarmScheduler.cancelReminder(memo.id)
+                audioFileManager.deleteAudioFile(memo.filePath)
+                memoRepository.deleteMemo(memo)
+            }
+            cancelBatchMode()
+            showSnackbar("${memos.size} memo${if (memos.size != 1) "s" else ""} deleted")
+        }
+    }
+
+    fun deleteAllMemos() {
+        viewModelScope.launch {
+            val all = memoRepository.getAllMemos().first()
+            all.forEach { memo ->
+                if (memo.hasReminder) alarmScheduler.cancelReminder(memo.id)
+                audioFileManager.deleteAudioFile(memo.filePath)
+            }
+            memoRepository.deleteAllMemos()
+            cancelBatchMode()
+            showSnackbar("All memos deleted")
+        }
+    }
+
+    fun importAudio(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val fileName = getFileName(uri) ?: "Import_${System.currentTimeMillis()}"
+                val dest = File(audioFileManager.getRecordingsDir(), fileName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                val memoId = UUID.randomUUID().toString()
+                val durationMs = audioFileManager.getAudioDuration(dest.absolutePath)
+                val now = System.currentTimeMillis()
+                memoRepository.insertMemo(
+                    MemoEntity(
+                        id = memoId,
+                        title = fileName.substringBeforeLast("."),
+                        filePath = dest.absolutePath,
+                        duration = durationMs,
+                        dateCreated = now,
+                        dateModified = now
+                    )
+                )
+                showSnackbar("Audio imported successfully")
+            } catch (e: Exception) {
+                showSnackbar("Import failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        var name: String? = null
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) name = cursor.getString(idx)
+            }
+        }
+        return name
     }
 
     fun createPlaylist(name: String) {
@@ -115,11 +228,20 @@ class HomeViewModel @Inject constructor(
 
     fun setCategoryFilter(categoryId: String?) {
         _uiState.update { it.copy(selectedCategoryFilter = categoryId) }
+        loadData()
     }
 
     fun updateMemoTitle(memoId: String, title: String) {
         viewModelScope.launch {
             memoRepository.updateTitle(memoId, title, System.currentTimeMillis())
         }
+    }
+
+    fun showSnackbar(message: String) {
+        _uiState.update { it.copy(snackbarMessage = message) }
+    }
+
+    fun clearSnackbar() {
+        _uiState.update { it.copy(snackbarMessage = null) }
     }
 }

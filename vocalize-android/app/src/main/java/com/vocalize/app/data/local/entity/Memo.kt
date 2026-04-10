@@ -15,7 +15,7 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.SET_NULL
         )
     ],
-    indices = [Index("categoryId")]
+    indices = [Index("categoryId"), Index("isPinned"), Index("dateCreated")]
 )
 data class MemoEntity(
     @PrimaryKey val id: String,
@@ -31,7 +31,9 @@ data class MemoEntity(
     val categoryId: String? = null,
     val textNote: String = "",
     val transcription: String = "",
-    val isTranscribing: Boolean = false
+    val isTranscribing: Boolean = false,
+    val isPinned: Boolean = false,
+    val lastPlaybackPositionMs: Long = 0L
 )
 
 enum class RepeatType {

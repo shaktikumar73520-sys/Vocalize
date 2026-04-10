@@ -7,8 +7,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface MemoDao {
 
-    @Query("SELECT * FROM memos ORDER BY dateCreated DESC")
+    @Query("SELECT * FROM memos ORDER BY isPinned DESC, dateCreated DESC")
     fun getAllMemos(): Flow<List<MemoEntity>>
+
+    @Query("SELECT * FROM memos WHERE isPinned = 1 ORDER BY dateModified DESC")
+    fun getPinnedMemos(): Flow<List<MemoEntity>>
 
     @Query("SELECT * FROM memos ORDER BY dateCreated DESC LIMIT 10")
     fun getRecentMemos(): Flow<List<MemoEntity>>
@@ -96,4 +99,13 @@ interface MemoDao {
 
     @Query("SELECT * FROM memos WHERE id IN (SELECT memoId FROM playlist_memo_cross_ref WHERE playlistId = :playlistId ORDER BY position ASC)")
     fun getMemosByPlaylist(playlistId: String): Flow<List<MemoEntity>>
+
+    @Query("UPDATE memos SET isPinned = :pinned WHERE id = :id")
+    suspend fun updatePinned(id: String, pinned: Boolean)
+
+    @Query("UPDATE memos SET lastPlaybackPositionMs = :positionMs WHERE id = :id")
+    suspend fun updatePlaybackPosition(id: String, positionMs: Long)
+
+    @Query("DELETE FROM memos")
+    suspend fun deleteAllMemos()
 }
