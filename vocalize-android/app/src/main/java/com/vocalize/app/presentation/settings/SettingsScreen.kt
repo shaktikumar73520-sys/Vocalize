@@ -1,10 +1,5 @@
 package com.vocalize.app.presentation.settings
 
-import android.app.Activity
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.border
@@ -23,10 +18,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.Scope
-import com.google.api.services.drive.DriveScopes
 import com.vocalize.app.presentation.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -51,26 +42,6 @@ fun SettingsScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.clearSnackbar()
         }
-    }
-
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                .addOnSuccessListener { account ->
-                    // Account signed in, refresh UI
-                }
-        }
-    }
-
-    fun launchGoogleSignIn() {
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(Scope(DriveScopes.DRIVE_APPDATA))
-            .build()
-        val client = GoogleSignIn.getClient(context, gso)
-        googleSignInLauncher.launch(client.signInIntent)
     }
 
     Scaffold(
@@ -102,66 +73,12 @@ fun SettingsScreen(
             SettingsSectionHeader("Account & Backup", Icons.Default.Cloud)
 
             SettingsCard {
-                if (!uiState.isSignedIn) {
-                    SettingsActionRow(
-                        icon = Icons.Default.AccountCircle,
-                        iconTint = VocalizeAccentBlue,
-                        title = "Sign in with Google",
-                        subtitle = "Required for Drive backup",
-                        onClick = { launchGoogleSignIn() }
-                    )
-                } else {
-                    SettingsInfoRow(
-                        icon = Icons.Default.CheckCircle,
-                        iconTint = VocalizeGreen,
-                        title = "Signed in",
-                        subtitle = uiState.signedInEmail
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    SettingsActionRow(
-                        icon = Icons.Default.Logout,
-                        iconTint = MaterialTheme.colorScheme.error,
-                        title = "Sign out",
-                        subtitle = "",
-                        onClick = viewModel::signOut
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-
-                SettingsActionRow(
-                    icon = Icons.Default.Backup,
-                    iconTint = VocalizePurple,
-                    title = "Backup now",
-                    subtitle = if (uiState.lastBackupTime > 0L) "Last: ${formatTs(uiState.lastBackupTime)}" else "Never backed up",
-                    onClick = viewModel::performBackup,
-                    enabled = !uiState.isBackingUp
+                Text(
+                    "Google Drive backup is disabled.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
                 )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-
-                SettingsActionRow(
-                    icon = Icons.Default.Restore,
-                    iconTint = VocalizeOrange,
-                    title = "Restore from Drive",
-                    subtitle = "Replaces local data",
-                    onClick = viewModel::performRestore,
-                    enabled = !uiState.isBackingUp && uiState.isSignedIn
-                )
-
-                AnimatedVisibility(visible = uiState.isBackingUp || uiState.backupStatusMessage.isNotBlank()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        if (uiState.isBackingUp) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        if (uiState.backupStatusMessage.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                uiState.backupStatusMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
             }
 
             // ── Voice-to-Text ──────────────────────────────────────────
